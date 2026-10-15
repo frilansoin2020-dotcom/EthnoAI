@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>EthnoAI</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f1ea;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 60px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #704214;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 12px;
+            font-size: 16px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            resize: none;
+        }
+
+        button {
+            margin-top: 15px;
+            width: 100%;
+            padding: 14px;
+            font-size: 17px;
+            border: none;
+            border-radius: 10px;
+            background: #704214;
+            color: white;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #542f0e;
+        }
+
+        #answer {
+            margin-top: 25px;
+            padding: 20px;
+            background: #f8f5ef;
+            border-radius: 10px;
+            line-height: 1.6;
+            min-height: 50px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>🇰🇿 EthnoAI</h1>
+
+    <div class="subtitle">
+        Интеллектуальный помощник по казахским национальным традициям
+    </div>
+
+    <textarea
+        id="question"
+        placeholder="Например: Что такое бесікке салу?"
+    ></textarea>
+
+    <button onclick="askQuestion()">
+        Задать вопрос
+    </button>
+
+    <div id="answer">
+        Здесь появится ответ EthnoAI...
+    </div>
+
+</div>
+
+<script>
+
+async function askQuestion() {
+
+    const question = document.getElementById("question").value;
+    const answer = document.getElementById("answer");
+
+    if (!question.trim()) {
+        answer.innerText = "Введите вопрос.";
+        return;
+    }
+
+    answer.innerText = "EthnoAI думает...";
+
+    try {
+
+        const response = await fetch("/ask", {
+            method: "POST",
+
+            headers: {
+                "Content-Type": "application/json"
+            },
+
+            body: JSON.stringify({
+                question: question
+            })
+        });
+
+        const data = await response.json();
+
+        answer.innerHTML = data.answer;
+
+    } catch (error) {
+
+        answer.innerText =
+            "Не удалось получить ответ. Проверьте работу сервера.";
+
+    }
+}
+
+</script>
+
+</body>
+</html>
