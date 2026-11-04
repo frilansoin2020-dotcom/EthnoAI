@@ -69,6 +69,31 @@
             line-height: 1.6;
             min-height: 50px;
         }
+		.photo-section {
+    margin-top: 30px;
+    padding: 20px;
+    background: #f8f5ef;
+    border-radius: 10px;
+}
+
+.photo-section h3 {
+    color: #704214;
+    text-align: center;
+}
+
+.photo-section input {
+    display: block;
+    width: 100%;
+    margin-top: 15px;
+}
+
+#photoPreview {
+    display: none;
+    max-width: 100%;
+    max-height: 300px;
+    margin: 20px auto;
+    border-radius: 10px;
+}
     </style>
 </head>
 
@@ -94,7 +119,43 @@
     <div id="answer">
         Здесь появится ответ EthnoAI...
     </div>
+<div class="photo-section">
 
+    <h3>📷 Распознавание по фотографии</h3>
+
+    <p>Загрузите фотографию казахского национального предмета или традиции</p>
+
+    <input
+        type="file"
+        id="photoInput"
+        accept="image/*"
+        onchange="previewPhoto()"
+    >
+
+    <img id="photoPreview" alt="Предварительный просмотр фотографии">
+
+    <button onclick="recognizePhoto()">
+        Распознать фотографию
+    </button>
+
+    <div id="photoAnswer"></div>
+
+</div>
+<div class="photo-section">
+    <h3>🔎 Поиск изображений в интернете</h3>
+    <p>Введите название предмета или традиции</p>
+
+    <input
+        type="text"
+        id="imageSearchInput"
+        placeholder="Например: казахская домбра"
+    >
+
+    <button onclick="searchImages()">Найти изображение</button>
+
+    <div id="imageSearchResults"></div>
+	<div id="internetImageAnswer"></div>
+</div>
 </div>
 
 <script>
@@ -136,7 +197,159 @@ async function askQuestion() {
 
     }
 }
+function previewPhoto() {
 
+    const input = document.getElementById("photoInput");
+    const preview = document.getElementById("photoPreview");
+
+    if (input.files && input.files[0]) {
+
+        const file = input.files[0];
+
+        preview.src = URL.createObjectURL(file);
+        preview.style.display = "block";
+    }
+}
+
+async function recognizePhoto() {
+    const input = document.getElementById("photoInput");
+	
+    const result = document.getElementById("photoAnswer");
+
+    if (!input.files || !input.files[0]) {
+        result.innerText = "Сначала загрузите фотографию.";
+        return;
+    }
+
+    const formData = new FormData();
+	
+    formData.append("photo", input.files[0]);
+
+    result.innerText = "EthnoAI анализирует фотографию...";
+
+    try {
+        const response = await fetch("/recognize", {
+            method: "POST",
+            body: formData
+        });
+				
+        const data = await response.json();
+        result.innerHTML = data.answer;
+
+    } catch (error) {
+        result.innerText =
+            "Не удалось распознать фотографию. Проверьте работу сервера.";
+    }
+}
+async function searchImages() {
+    const query = document.getElementById("imageSearchInput").value.trim();
+    const results = document.getElementById("imageSearchResults");
+	document.getElementById("internetImageAnswer").innerHTML = "";
+
+    if (!query) {
+        results.innerHTML = "Введите название для поиска.";
+        return;
+    }
+
+    results.innerHTML = "Ищем изображения...";
+
+    try {
+        const response = await fetch("/search_images", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ query: query })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            results.innerHTML = data.error;
+            return;
+        }
+
+        if (!data.images || data.images.length === 0) {
+            results.innerHTML = "По вашему запросу изображения не найдены.";
+            return;
+        }
+
+        results.innerHTML = "";
+
+        data.images.forEach(image => {
+            const item = document.createElement("div");
+            item.style.display = "inline-block";
+            item.style.margin = "10px";
+            item.style.width = "180px";
+
+            const picture = document.createElement("img");
+            picture.src = image.url;
+            picture.alt = image.title;
+            picture.style.width = "100%";
+            picture.style.cursor = "pointer";
+            picture.style.borderRadius = "8px";
+			picture.onclick = function() {
+    const results = document.getElementById("imageSearchResults");
+
+    // Оставляем только выбранную фотографию
+    results.innerHTML = "";
+    results.appendChild(item);
+
+    // Показываем выбранную фотографию и результат
+    recognizeImageUrl(image.original_url);
+};
+
+            const title = document.createElement("p");
+            title.textContent = image.title;
+
+            item.appendChild(picture);
+            item.appendChild(title);
+
+            results.appendChild(item);
+        });
+
+    } catch (error) {
+        results.innerHTML = "Ошибка поиска изображений.";
+        console.error(error);
+    }
+}
+async function recognizeImageUrl(imageUrl) {
+    const answer = document.getElementById("internetImageAnswer");
+
+    answer.innerHTML = "🔍 EthnoAI распознаёт выбранную фотографию...";
+
+    try {
+        const response = await fetch("/recognize_url", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                image_url: imageUrl
+            })
+        });
+
+        const data = await response.json();
+
+        answer.innerHTML = data.answer || data.error || "Не удалось распознать изображение.";
+
+// Создаём кнопку возврата к результатам поиска
+const backButton = document.createElement("button");
+backButton.textContent = "↩ Вернуться к результатам поиска";
+
+backButton.style.marginTop = "15px";
+
+backButton.onclick = function() {
+    searchImages();
+};
+
+answer.appendChild(backButton);
+
+    } catch (error) {
+        answer.innerHTML = "Ошибка при распознавании фотографии.";
+        console.error(error);
+    }
+}
 </script>
 
 </body>
