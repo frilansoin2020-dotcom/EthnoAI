@@ -3,3 +3,4 @@ gunicorn
 certifi
 python-dotenv
 google-genai
+Pillow
