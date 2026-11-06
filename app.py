@@ -10,6 +10,9 @@ import ipaddress
 import socket
 import certifi
 import ssl
+import time
+import io
+from PIL import Image
 from dotenv import load_dotenv
 from google import genai
 
@@ -24,6 +27,21 @@ else:
 import re
 
 app = Flask(__name__)
+def prepare_image(image_bytes):
+    image = Image.open(io.BytesIO(image_bytes))
+
+    # Уменьшаем изображение, если оно слишком большое
+    image.thumbnail((1200, 1200))
+
+    # Переводим в обычный цветовой формат
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+
+    # Сохраняем в JPEG с хорошим качеством
+    output = io.BytesIO()
+    image.save(output, format="JPEG", quality=85, optimize=True)
+
+    return output.getvalue(), "image/jpeg"
 @app.route("/search_images", methods=["POST"])
 def search_images():
     data = request.get_json()
@@ -54,10 +72,10 @@ def search_images():
         )
 
         with urllib.request.urlopen(
-    req,
-    timeout=15,
-    context=ssl.create_default_context(cafile=certifi.where())
-) as response:
+            req,
+            timeout=15,
+            context=ssl.create_default_context(cafile=certifi.where())
+        ) as response:
             result = json.loads(response.read().decode("utf-8"))
 
         pages = result.get("query", {}).get("pages", {})
@@ -73,6 +91,19 @@ def search_images():
             })
 
         return jsonify({"images": images})
+
+    except urllib.error.HTTPError as error:
+        print("Ошибка поиска изображений:", error)
+
+        if error.code == 429:
+            message = "Сервис временно ограничил поиск изображений. Попробуйте немного позже."
+        else:
+            message = "Не удалось выполнить поиск. Попробуйте ещё раз."
+
+        return jsonify({
+            "images": [],
+            "error": message
+        })
 
     except Exception as error:
         print("Ошибка поиска изображений:", error)
@@ -695,12 +726,20 @@ def recognize():
             "answer": "Можно загрузить фотографию в формате JPG, PNG или WEBP."
         })
 
-    # Ограничиваем размер фотографии — 5 МБ
+    # Ограничиваем размер исходной фотографии — 15 МБ
     image_bytes = photo.read()
 
-    if len(image_bytes) > 5 * 1024 * 1024:
+    if len(image_bytes) > 15 * 1024 * 1024:
         return jsonify({
-            "answer": "Размер фотографии не должен превышать 5 МБ."
+            "answer": "Размер фотографии не должен превышать 15 МБ."
+        })
+
+    # Уменьшаем фотографию перед отправкой в Gemini
+    try:
+        image_bytes, mime_type = prepare_image(image_bytes)
+    except Exception:
+        return jsonify({
+            "answer": "Не удалось обработать фотографию. Попробуйте другое изображение."
         })
 
     if not GEMINI_API_KEY:
@@ -709,6 +748,8 @@ def recognize():
         })
 
     try:
+        total_start = time.perf_counter()
+
         # Получаем названия всех понятий из базы знаний
         allowed_names = [
             item["title"] for item in knowledge_base.values()
@@ -736,7 +777,7 @@ def recognize():
                 {
                     "type": "image",
                     "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    "mime_type": photo.mimetype
+                    "mime_type": mime_type
                 }
             ]
         )
@@ -777,6 +818,8 @@ def recognize():
                 "Попробуйте ещё раз."
             )
         })
+
+
 @app.route("/recognize_url", methods=["POST"])
 def recognize_url():
 
@@ -794,6 +837,8 @@ def recognize_url():
         })
 
     try:
+        total_start = time.perf_counter()
+
         # Загружаем фотографию по ссылке
         image_request = urllib.request.Request(
             image_url,
@@ -810,13 +855,20 @@ def recognize_url():
             )
         ) as response:
 
-            image_bytes = response.read(5 * 1024 * 1024 + 1)
+            image_bytes = response.read(15 * 1024 * 1024 + 1)
             mime_type = response.headers.get_content_type()
 
+        print(
+            ">>> ВРЕМЯ ЗАГРУЗКИ ФОТО:",
+            round(time.perf_counter() - total_start, 2),
+            "сек.",
+            flush=True
+        )
+
         # Проверяем размер фотографии
-        if len(image_bytes) > 5 * 1024 * 1024:
+        if len(image_bytes) > 15 * 1024 * 1024:
             return jsonify({
-                "answer": "Фотография слишком большая. Максимальный размер — 5 МБ."
+                "answer": "Фотография слишком большая. Максимальный размер — 15 МБ."
             })
 
         # Проверяем формат
@@ -824,6 +876,9 @@ def recognize_url():
             return jsonify({
                 "answer": "Поддерживаются только JPG, PNG и WEBP."
             })
+
+        # Уменьшаем фотографию и подготавливаем для Gemini
+        image_bytes, mime_type = prepare_image(image_bytes)
 
         # Получаем названия понятий из базы знаний
         allowed_names = [
@@ -842,6 +897,8 @@ def recognize_url():
         )
 
         # Передаём фотографию Gemini
+        gemini_start = time.perf_counter()
+
         response = gemini_client.interactions.create(
             model="gemini-3.5-flash",
             input=[
@@ -857,9 +914,27 @@ def recognize_url():
             ]
         )
 
+        print(
+            ">>> ВРЕМЯ GEMINI:",
+            round(time.perf_counter() - gemini_start, 2),
+            "сек.",
+            flush=True
+        )
+
+        print(
+            ">>> ОБЩЕЕ ВРЕМЯ:",
+            round(time.perf_counter() - total_start, 2),
+            "сек.",
+            flush=True
+        )
+
         detected_name = response.output_text.strip().lower()
 
-        print(">>> РАСПОЗНАВАНИЕ ПО ССЫЛКЕ:", detected_name, flush=True)
+        print(
+            ">>> РАСПОЗНАВАНИЕ ПО ССЫЛКЕ:",
+            detected_name,
+            flush=True
+        )
 
         # Ищем описание в базе знаний
         for item in knowledge_base.values():
@@ -878,13 +953,18 @@ def recognize_url():
 
         return jsonify({
             "answer": (
-                "Не удалось уверенно определить объект. "
-                "Попробуйте выбрать другую фотографию."
+                "Не удалось уверенно определить объект на фотографии. "
+                "Попробуйте загрузить другое изображение, "
+                "на котором предмет хорошо виден."
             )
         })
 
     except Exception as e:
-        print(">>> ОШИБКА РАСПОЗНАВАНИЯ ПО ССЫЛКЕ:", str(e), flush=True)
+        print(
+            ">>> ОШИБКА РАСПОЗНАВАНИЯ ПО ССЫЛКЕ:",
+            str(e),
+            flush=True
+        )
 
         return jsonify({
             "answer": "При распознавании фотографии произошла ошибка."
